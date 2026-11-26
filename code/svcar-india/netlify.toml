@@ -1,0 +1,11 @@
+# Netlify build for the storefront (moved off Vercel Hobby, Oct 2026).
+# In the Netlify UI set Base directory = svcar-india; this file is read from there.
+# Netlify's Next.js runtime (OpenNext) is picked up automatically: ISR,
+# revalidateTag from /api/revalidate, route handlers and next/og all work.
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
+  NEXT_TELEMETRY_DISABLED = "1"

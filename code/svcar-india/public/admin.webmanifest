@@ -1,0 +1,29 @@
+{
+  "id": "/admin",
+  "name": "SV Admin",
+  "short_name": "SV Admin",
+  "description": "SV Car Customs admin: orders, phone leads and products, with instant alerts.",
+  "start_url": "/admin",
+  "scope": "/admin",
+  "display": "standalone",
+  "background_color": "#0C0C0D",
+  "theme_color": "#0C0C0D",
+  "icons": [
+    { "src": "/admin-icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/admin-icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/admin-icons/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/admin-icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Orders",
+      "url": "/admin/orders",
+      "icons": [{ "src": "/admin-icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Phone leads",
+      "url": "/admin/phone-leads",
+      "icons": [{ "src": "/admin-icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ]
+}
