@@ -1,0 +1,465 @@
+\documentclass{tietreport}
+
+\coursecode{UCS503 - Software Engineering}
+\projecttitle{SV Car Customs}
+\projectsubtitle{An E-Commerce Platform for Vehicle-Compatible Car Accessories}
+\students{%
+  \texttt{1024170242} Vishu Verma\\
+  \texttt{1024170241} Raghu Verma\\
+  \texttt{1024170229} Pratham Sharma\\
+  \texttt{1024170231} Tarush Mohindru}
+\group{Group: \texttt{3Q24} BE Third Year, COPC}
+\supervisor{Ms.\ Anushka Chaudhary}
+\evaluation{Mid-Semester Evaluation (Prototype Stage) -- revised}
+
+\begin{document}
+\maketitle
+\pagenumbering{roman}
+\tableofcontents
+\cleardoublepage
+\pagenumbering{arabic}
+
+\chapter{Introduction}
+
+\paragraph{About this revision.}
+This is the prototype-stage report submitted at the mid-semester evaluation,
+re-checked against the code as it stood on 15 October 2026 (repository
+revision \texttt{fb14d3d}, 75 commits). Statements that the first version
+could only quote from notes are now verified in the code. The corrections are:
+order states now use the real \texttt{order\_status} values; the GST rate is
+an admin setting (default 28\%), not a fixed 18\%; free shipping applies from
+the threshold \emph{inclusive}; project-scale figures are measured from the
+repository; and the team member names are completed.
+
+\section{Background and Context}
+
+SV Car Customs is an e-commerce project for a Delhi business that sells
+aftermarket car accessories, including body kits, spoilers, diffusers,
+exhausts, lighting and steering wheels. Its central requirement is to connect
+product discovery with vehicle compatibility, so a customer can find
+accessories that fit a particular car before ordering. At the prototype stage
+the project combined a customer storefront, an administration panel and a
+separate \texttt{/customs} page presenting the business's vehicle
+customisation services.
+
+The work completed by mid-semester covered catalogue and SKU management,
+vehicle fitment, customer authentication, checkout, PayU payments, order
+administration, operational monitoring and configurable branding, deployed
+as two independent applications (frontend and API).
+
+\subsection{Problem Statement}
+
+A generic product catalogue cannot express whether an accessory fits a
+vehicle make and model. Customers also need accurate prices, reliable order
+records and a payment flow that cannot be manipulated through
+browser-submitted totals. Staff need one interface for maintaining products,
+variants, stock and order status instead of disconnected records.
+
+The project therefore builds a vehicle-aware commerce system in which the API
+validates checkout data, each order keeps its historical details, and staff
+manage the catalogue and fulfilment workflow. Damage-claim handling and
+courier integration are part of the domain design but were not planned for
+the prototype.
+
+\section{Project Objectives}
+
+\begin{enumerate}
+  \item \textbf{Objective 1:} Catalogue browsing, product search and
+        vehicle-fitment discovery through a responsive storefront.
+  \item \textbf{Objective 2:} Customer authentication and separate
+        administrative access, with server-side ownership and authorisation
+        checks.
+  \item \textbf{Objective 3:} SKU-based cart, trusted server-side price
+        calculation and PayU-verified online payment, including Cash on
+        Delivery (COD) with an online advance.
+  \item \textbf{Objective 4:} Admin tools for products, categories, fitment,
+        orders, home-page content and settings.
+  \item \textbf{Objective 5:} Document the system through consistent UML
+        views and establish functional, security and operational testing.
+\end{enumerate}
+
+These objectives defined the mid-semester scope. Quantified latency and
+user-study targets were set later in the SRS and are evaluated in the final
+report.
+
+\chapter{Methodology and Design}
+
+\section{System Architecture}
+
+\subsection{High-Level Design}
+
+The repository contains the Hono API in \texttt{svcar-api} and the Next.js
+application in \texttt{svcar-india}. The two deploy independently and exchange
+data through Zod-defined contracts shared in a \texttt{contracts} package.
+The API runs on Fly.io, the frontend on Vercel, and Supabase provides
+PostgreSQL and object storage (Figure~\ref{fig:arch}).
+
+\begin{figure}[H]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[node distance=9mm and 6mm]
+  \node[ext] (cust) {Customer browser\\(storefront)};
+  \node[ext, right=40mm of cust] (adm) {Owner / staff browser\\(admin panel)};
+  \node[box, below=12mm of $(cust)!0.5!(adm)$, minimum width=72mm] (web) {\textbf{Vercel} -- Next.js 16 / React 19\\server-rendered, cached pages; session proxy};
+  \node[box, below=10mm of web, minimum width=72mm] (api) {\textbf{Fly.io} -- Hono REST API (Node.js 20)\\JWT auth, Zod validation, pricing, orders};
+  \node[ext, below left=12mm and -12mm of api] (db) {Supabase\\PostgreSQL + Storage};
+  \node[ext, below=12mm of api] (payu) {PayU\\hosted checkout};
+  \node[ext, below right=12mm and -12mm of api] (jobs) {Inngest, Resend,\\MSG91, Redis};
+  \node[ext, left=8mm of api] (pin) {India Post\\pincode API};
+  \node[ext, right=6mm of adm] (g) {Google Search /\\Merchant Center};
+  \draw[arr] (cust) -- node[lbl]{HTTPS} (web);
+  \draw[arr] (adm) -- node[lbl]{HTTPS} (web);
+  \draw[arr] (web) -- node[lbl]{JSON / REST} (api);
+  \draw[arr] (api) -- node[lbl]{Drizzle ORM} (db);
+  \draw[arr,<->] (api) -- node[lbl]{hash + webhook} (payu);
+  \draw[arr] (api) -- node[lbl]{events} (jobs);
+  \draw[arr] (api) -- (pin);
+  \draw[arr] (g) |- node[lbl,pos=0.75]{crawl, feed.xml} (web.east);
+\end{tikzpicture}}
+\caption{System architecture and external services}
+\label{fig:arch}
+\end{figure}
+
+The API owns business validation and database access through Drizzle ORM.
+PayU handles payment entry; its callbacks and webhooks return to the API for
+verification. Inngest runs order-related background jobs, Resend sends
+email, and Upstash Redis supports caching and rate limiting. Sentry and
+structured logs provide operational visibility. The browser is outside the
+trust boundary, and customer session routes are proxied through Next.js so
+refresh cookies stay first-party.
+
+\subsection{Technical Stack}
+
+\begin{itemize}
+  \item \textbf{Framework/Language:} TypeScript; Next.js 16, React 19 and
+        Tailwind CSS 4 (frontend); Node.js 20 and Hono (backend).
+  \item \textbf{Database:} Supabase PostgreSQL through Drizzle ORM; Upstash
+        Redis for cache and rate limits.
+  \item \textbf{Tools:} Git/GitHub, GitHub Actions, Vitest, Mock Service
+        Worker, Docker, Vercel, Fly.io, Sentry.
+  \item \textbf{Libraries:} Zustand (client state), SWR (fetching),
+        react-hook-form and Zod (forms and validation), bcrypt, Inngest SDK.
+\end{itemize}
+
+\section{Implementation Details}
+
+\subsection{Module 1: Core Functionality}
+
+\paragraph{Catalogue and vehicle fitment.}
+Products, images and categories form the catalogue; a junction table allows a
+product in several categories. Dimensions, dimension values and SKUs model
+saleable variants, so price and stock belong to the SKU. The fitment model
+links products to vehicle makes and models; the ``My Garage'' selector
+filters products by the shopper's car and product pages show fitment badges.
+
+\paragraph{Authentication.}
+Customers sign in with a six-digit email OTP, stored as a bcrypt hash, valid
+for five minutes with at most five attempts. Verification issues a
+short-lived access JWT and an httpOnly refresh cookie with a revocable
+identifier; customers can later set a password. Admins use a separate
+signing secret, and every admin request re-checks the admin flag in the
+database (cached for 60 seconds). Password login compares against a dummy
+bcrypt hash for unknown accounts to prevent timing-based account discovery.
+
+\paragraph{Checkout and payment.}
+At the prototype stage checkout required sign-in. The checkout endpoint
+reloads the persisted cart, validates SKUs and calculates prices in integer
+paise; the browser total is never used. It creates the order before payment,
+then hands off to PayU with a signed hash. The callback and webhook verify
+PayU's hash and the amount before confirming payment. An order-paid job
+sends the confirmation email, and a reconcile job revisits orders stuck in
+\emph{pending}. For COD, the customer pays a 15\% advance online and the
+admin records collection of the balance.
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\linewidth}{l X}
+\toprule
+\textbf{Quantity} & \textbf{Rule in the implementation} \\
+\midrule
+Subtotal & $S = \sum q_i \times p_i$ using current SKU prices from the database. \\
+Shipping & $F = 0$ when $S \ge$ the free-shipping threshold (default \rupee5,000), otherwise the flat fee (default \rupee200). \\
+GST & Prices are GST-inclusive: $G = S - S/(1+g)$ is shown, not added; $g$ is an admin setting (default 28\%). \\
+Total & $T = S + F$. \\
+COD & Advance $= 15\%$ of $T$ paid online; balance $= T -$ advance, collected on delivery. \\
+\bottomrule
+\end{tabularx}
+\caption{Pricing rules}
+\end{table}
+
+\subsection{Module 2: Secondary Features}
+
+\paragraph{Administration.}
+The admin panel includes product editing with a variant matrix, fitment
+editing and image uploads; category drag-and-drop with archive and restore;
+orders with a status timeline and COD collection; a home-page builder and a
+settings screen. Every admin mutation is written to an audit log. Further
+views cover first-party analytics, WhatsApp leads, newsletter subscribers and
+live activity.
+
+\paragraph{Customs page and storefront delivery.}
+The \texttt{/customs} page presented the customisation business with a
+before/after slider, wrap configurator, builds carousel and booking call to
+action. (It was later removed because it used placeholder content; see the
+final report.) Home and product pages render on the server; a custom image
+loader uses Supabase image rendering after the Vercel optimisation quota was
+exhausted. SEO work included sitemap, robots, canonical URLs, structured data
+and Open Graph images.
+
+\paragraph{Brand configuration and tooling.}
+One file at the repository root (\texttt{brand.config.ts}) defines the
+brand. One command writes the derived configuration into both apps, and a
+check command fails CI if the generated files drift. MSW fixtures let the frontend and admin run without a backend in
+development.
+
+\paragraph{Design scope not implemented.}
+The domain model includes damage-claim submission and review and a courier
+partner. These were kept as design elements only.
+
+\subsection{Use Case Diagrams}
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+  \draw[rounded corners=3pt] (-3.7,-6.4) rectangle (3.7,3.4);
+  \node[font=\small\bfseries] at (0,3.05) {SV Car Customs};
+  \node[uc] (u1) at (0,2.4) {Browse / search catalogue};
+  \node[uc] (u2) at (0,1.6) {Check vehicle fitment};
+  \node[uc] (u3) at (0,0.8) {Manage cart};
+  \node[uc] (u4) at (0,0.0) {Checkout and pay};
+  \node[uc] (u5) at (0,-0.8) {Sign in with email OTP};
+  \node[uc] (u6) at (0,-1.6) {Track order};
+  \node[uc] (u7) at (0,-2.6) {Manage products and categories};
+  \node[uc] (u8) at (0,-3.4) {Process orders / collect COD};
+  \node[uc] (u9) at (0,-4.2) {Edit settings and home page};
+  \node[uc] (u10) at (0,-5.0) {Manage leads and subscribers};
+  \node[uc] (u11) at (0,-5.8) {View analytics and audit log};
+  \actor{-5.6,0.9}{cust}{Guest /\\Customer}
+  \actor{5.6,-4.2}{admin}{Admin}
+  \actor{5.6,0.3}{payu}{PayU\\(external)}
+  \foreach \u in {u1,u2,u3,u4,u5,u6} \draw (-5.3,1.2) -- (\u.west);
+  \foreach \u in {u7,u8,u9,u10,u11} \draw (5.3,-3.9) -- (\u.east);
+  \draw (5.3,0.6) -- (u4.east);
+\end{tikzpicture}
+\caption{Use case diagram}
+\label{fig:uc}
+\end{figure}
+
+\subsection{UML Class Diagrams}
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\scriptsize,
+  cls/.style={draw,rectangle split,rectangle split parts=3,fill=black!3,align=left,text width=31mm,inner sep=3pt}]
+  \node[cls] (cat) at (-5,3) {\textbf{Category}\nodepart{second}- id, name, slug\\- status\nodepart{third}};
+  \node[cls] (prod) at (0,3) {\textbf{Product}\nodepart{second}- id, title, slug\\- status (enum)\nodepart{third}+ fits(model): bool};
+  \node[cls] (vm) at (5,3) {\textbf{VehicleModel}\nodepart{second}- id, make, model\nodepart{third}};
+  \node[cls] (fit) at (5,0.6) {\textbf{Fitment}\nodepart{second}- productId, modelId\nodepart{third}};
+  \node[cls] (sku) at (0,0.4) {\textbf{SKU}\nodepart{second}- id, price, stock\\- dimension values\nodepart{third}+ inStock(): bool};
+  \node[cls] (img) at (-5,0.6) {\textbf{ProductImage}\nodepart{second}- url, position\nodepart{third}};
+  \node[cls] (user) at (-5,-2.6) {\textbf{User}\nodepart{second}- id, email, phone\\- isAdmin\nodepart{third}+ orders()};
+  \node[cls] (ord) at (0,-2.6) {\textbf{Order}\nodepart{second}- orderNumber, status\\- subtotal, discount\\- shippingFee, gst, total\\- paymentMethod\\- advanceAmount\nodepart{third}+ balanceDue()};
+  \node[cls] (oi) at (5,-2.6) {\textbf{OrderItem}\nodepart{second}- skuId, title, qty\\- unitPrice (snapshot)\nodepart{third}};
+  \node[cls] (ev) at (0,-6.0) {\textbf{OrderEvent}\nodepart{second}- type, note, at\nodepart{third}};
+  \draw (cat) -- node[above]{0..* \quad\quad 0..*} (prod);
+  \draw (prod) -- node[above]{0..* \quad\quad 0..*} (vm);
+  \draw[dashed] ($(prod.east)!0.5!(vm.west)$) -- (fit);
+  \draw[-{Diamond[fill=black]}] (sku) -- node[right]{0..* \ 1} (prod);
+  \draw[-{Diamond[fill=black]}] (img) -- node[above]{1..* \ 1} (prod.south west);
+  \draw (user) -- node[above]{1 \quad\quad 0..*} (ord);
+  \draw[-{Diamond[fill=black]}] (oi) -- node[above]{1..* \quad\quad 1} (ord);
+  \draw[-{Diamond[fill=black]}] (ev) -- node[right]{0..* \ 1} (ord);
+\end{tikzpicture}
+\caption{Domain class diagram (selected attributes)}
+\label{fig:class}
+\end{figure}
+
+\subsection{UML Sequence Diagram}
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\scriptsize]
+  \foreach \x/\n/\t in {0/c/Customer UI,3/a/Hono API,6/d/PostgreSQL,9/p/PayU,12/j/Inngest} {
+    \node[box,minimum width=20mm] (\n) at (\x,0) {\t};
+    \draw[dashed,black!50] (\x,-0.45) -- (\x,-9.6);
+  }
+  \draw[arr] (0,-1) -- node[lbl,above=1pt]{1 POST /checkout} (3,-1);
+  \draw[arr] (3,-1.7) -- node[lbl,above=1pt]{2 load cart, SKUs, settings} (6,-1.7);
+  \draw[arr,dashed] (6,-2.4) -- node[lbl,above=1pt]{3 trusted data} (3,-2.4);
+  \draw[arr] (3,-2.9) -- ++(0.5,0) -- ++(0,-0.4) -- ++(-0.5,0); \node[lbl,right] at (3.55,-3.1) {4 compute totals};
+  \draw[arr] (3,-3.9) -- node[lbl,above=1pt]{5 create order + items} (6,-3.9);
+  \draw[arr,dashed] (3,-4.6) -- node[lbl,above=1pt]{6 signed PayU form} (0,-4.6);
+  \draw[arr] (0,-5.3) -- node[lbl,above=1pt,pos=0.35]{7 pay (full or COD advance)} (9,-5.3);
+  \draw[arr] (9,-6.0) -- node[lbl,above=1pt,pos=0.5]{8 callback / webhook} (3,-6.0);
+  \draw[arr] (3,-6.5) -- ++(0.5,0) -- ++(0,-0.4) -- ++(-0.5,0); \node[lbl,right] at (3.55,-6.7) {9 verify hash + amount};
+  \draw (2.2,-7.2) rectangle (12.6,-9.4); \node[anchor=north west,font=\scriptsize\bfseries,draw,fill=white] at (2.2,-7.2) {opt [verified]};
+  \draw[arr] (3,-8.1) -- node[lbl,above=1pt]{10 mark paid, add event} (6,-8.1);
+  \draw[arr] (3,-8.9) -- node[lbl,above=1pt,pos=0.7]{11 order.paid $\rightarrow$ email + SMS} (12,-8.9);
+\end{tikzpicture}
+\caption{Checkout and verified-payment sequence}
+\label{fig:seq}
+\end{figure}
+
+\subsection{UML Activity Diagram}
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\scriptsize,node distance=5mm]
+  \draw (-2,1) rectangle (2,-9.4); \draw (2,1) rectangle (7.6,-9.4); \draw (7.6,1) rectangle (10.6,-9.4);
+  \node[font=\footnotesize\bfseries] at (0,0.7) {Customer}; \node[font=\footnotesize\bfseries] at (4.8,0.7) {Application}; \node[font=\footnotesize\bfseries] at (9.1,0.7) {PayU};
+  \fill (0,0.2) circle (1mm);
+  \node[box] (a1) at (0,-0.6) {Select car and SKU};
+  \node[box] (a2) at (0,-1.8) {Sign in and\\enter address};
+  \node[box] (a3) at (4.8,-1.8) {Validate cart, pincode};
+  \node[box] (a4) at (4.8,-3.0) {Compute subtotal,\\shipping, GST, total};
+  \node[box] (a5) at (4.8,-4.3) {Create order (pending)};
+  \node[box] (a6) at (9.1,-4.3) {Pay full /\\15\% advance};
+  \node[box] (a7) at (4.8,-5.7) {Verify hash and amount};
+  \node[draw,diamond,aspect=1.6,inner sep=1pt] (d) at (4.8,-6.9) {valid?};
+  \node[box] (n) at (3.2,-8.3) {Keep pending,\\allow retry};
+  \node[box] (y) at (6.4,-8.3) {Mark paid,\\notify};
+  \draw[arr] (0,0.1) -- (a1); \draw[arr] (a1) -- (a2); \draw[arr] (a2) -- (a3); \draw[arr] (a3) -- (a4);
+  \draw[arr] (a4) -- (a5); \draw[arr] (a5) -- (a6); \draw[arr] (a6) |- (a7); \draw[arr] (a7) -- (d);
+  \draw[arr] (d) -| node[lbl,pos=0.3]{no} (n); \draw[arr] (d) -| node[lbl,pos=0.3]{yes} (y);
+  \draw (n.south) ++(0,-0.25) circle (1.2mm); \fill (n.south) ++(0,-0.25) circle (0.7mm); \draw (n.south) -- ++(0,-0.13);
+  \draw (y.south) ++(0,-0.25) circle (1.2mm); \fill (y.south) ++(0,-0.25) circle (0.7mm); \draw (y.south) -- ++(0,-0.13);
+\end{tikzpicture}
+\caption{Checkout activity diagram with swimlanes}
+\label{fig:act}
+\end{figure}
+
+\subsection{UML State Machine Diagrams}
+Figure~\ref{fig:state} uses the actual \texttt{order\_status} values.
+Figure~\ref{fig:claim} is a design-only lifecycle for damage claims
+(eligibility: within four days of delivery, with an unboxing video).
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\scriptsize]
+  \fill (-1.7,0) circle (1mm);
+  \node[state] (p) at (0,0) {pending};
+  \node[state] (pa) at (3.6,0) {paid};
+  \node[state] (c) at (7.2,0) {confirmed};
+  \node[state] (s) at (10.8,0) {shipped};
+  \node[state] (x) at (0,-2.4) {cancelled};
+  \node[state] (r) at (5.4,-2.4) {refunded};
+  \node[state] (d) at (10.8,-2.4) {delivered};
+  \draw[arr] (-1.65,0) -- (p);
+  \draw[arr] (p) -- node[lbl,above=2pt]{verified\\payment} (pa);
+  \draw[arr] (pa) -- node[lbl,above=2pt]{admin\\confirms} (c);
+  \draw[arr] (c) -- node[lbl,above=2pt]{dispatch} (s);
+  \draw[arr] (s) -- node[lbl,right=2pt]{received} (d);
+  \draw[arr] (p) -- node[lbl,left=2pt]{fail /\\cancel} (x);
+  \draw[arr] (pa) -- node[lbl,left=4pt]{refund} (r);
+  \draw[arr] (c) -- node[lbl,right=4pt]{refund} (r);
+  \draw[arr] ([xshift=-4mm]p.north) to[out=110,in=70,looseness=3] node[lbl,above]{payment failed, retry} ([xshift=4mm]p.north);
+  \draw (d.south) ++(0,-0.35) circle (1.2mm); \fill (d.south) ++(0,-0.35) circle (0.7mm); \draw (d.south) -- ++(0,-0.23);
+\end{tikzpicture}
+\caption{Order state machine (from the \texttt{order\_status} enum)}
+\label{fig:state}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\scriptsize]
+  \fill (-1.7,0) circle (1mm); \draw[arr] (-1.65,0) -- (-1.15,0);
+  \node[state] (r) at (0,0) {RAISED};
+  \node[state] (u) at (4.2,0) {UNDER\_REVIEW};
+  \node[state] (rj) at (0,-2) {REJECTED};
+  \node[state] (ap) at (4.2,-2) {APPROVED};
+  \draw[arr] (r) -- node[lbl,above=2pt]{eligible claim} (u);
+  \draw[arr] (r) -- node[lbl,left=2pt]{ineligible} (rj);
+  \draw[arr] (u) -- node[lbl,above=2pt]{evidence insufficient} (rj);
+  \draw[arr] (u) -- node[lbl,right=2pt]{evidence sufficient} (ap);
+\end{tikzpicture}
+\caption{Damage-claim state machine (design only)}
+\label{fig:claim}
+\end{figure}
+
+\subsection{Data Model}
+At revision \texttt{fb14d3d} the schema had 16 migrations. The final schema
+(28 tables) is listed in the final report.
+
+\chapter{Results and Evaluation}
+
+\section{Testing Methodology}
+
+\begin{itemize}
+  \item \textbf{Unit testing:} Vitest suites for pricing, hashing, cart state,
+        checkout helpers, category logic and SKU-matrix calculations.
+  \item \textbf{Integration testing:} API route tests, API-client tests, MSW
+        handlers and an end-to-end checkout smoke script.
+  \item \textbf{Security testing:} an OWASP-mapped test catalogue covering
+        ownership, JWTs, payment integrity, injection, uploads and business
+        logic.
+  \item \textbf{Performance testing:} a search benchmark script; live
+        measurements were deferred to the final evaluation.
+  \item \textbf{User testing:} not performed at this stage.
+\end{itemize}
+
+\section{Performance Metrics}
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\linewidth}{l l X}
+\toprule
+\textbf{Metric} & \textbf{Value (15 Oct 2026)} & \textbf{Note} \\
+\midrule
+Commits on main & 75 & Since 31 May 2026. \\
+Test files & 66 (44 API, 22 storefront) & Files present at that revision. \\
+Database migrations & 16 & \\
+Latency / throughput & not measured & Measured for the final report. \\
+User evaluation & not performed & \\
+\bottomrule
+\end{tabularx}
+\caption{Project scale at the prototype stage}
+\end{table}
+
+\section{Analysis}
+
+The prototype met the functional objectives: vehicle-aware discovery,
+customer and admin access, server-owned checkout and administrative
+operations. Two deployment problems shaped the design. Refresh cookies set by
+the API domain were blocked in browsers that block third-party cookies, so
+session routes were moved behind a same-origin proxy. The Vercel image
+optimisation quota ran out, so image resizing moved to Supabase's rendering
+endpoint. The remaining work at this stage was to measure performance, run
+the suites against a real database and PayU sandbox, and decide whether
+claims and courier automation belonged in scope.
+
+\chapter{Conclusion}
+
+\section{Summary of Work}
+By mid-semester the team had a deployed vehicle-accessory store with a
+Next.js storefront, a Hono API, PostgreSQL persistence and PayU payments,
+covering fitment, variants, authentication, checkout, order operations,
+administration, analytics and configurable branding.
+
+\section{Key Findings}
+\begin{itemize}
+  \item \textbf{Finding 1:} Fitment belongs to the product--vehicle
+        relationship, and the SKU is what an order line buys.
+  \item \textbf{Finding 2:} Checkout must use trusted server-side data, and
+        payment confirmation must depend on verified gateway evidence.
+  \item \textbf{Finding 3:} Hosting limits (cookies, image quotas) changed the
+        architecture as much as the requirements did.
+\end{itemize}
+
+\section{Future Work and Recommendations}
+\begin{enumerate}
+  \item Guest checkout and promo codes (delivered after mid-semester).
+  \item Measure page speed and API latency on the live site.
+  \item Decide on the damage-claim workflow and courier integration.
+  \item Verify payment replay handling and stock contention under load.
+\end{enumerate}
+
+\section{Final Remarks}
+The prototype established the main customer and staff workflows; the next
+milestone was to attach measured evidence to them, which the final report
+does.
+
+\begin{thebibliography}{SRS26}
+\bibitem[SRS26]{srs} V.~Verma, R.~Verma, P.~Sharma, T.~Mohindru. \emph{Software Requirements Specification for SV Car Customs}. UCS503, TIET, 2026.
+\bibitem[Next25]{next} Vercel. \emph{Next.js Documentation}. \url{https://nextjs.org/docs}, 2025.
+\bibitem[Hono25]{hono} Hono. \emph{Hono Documentation}. \url{https://hono.dev}, 2025.
+\bibitem[PayU25]{payu} PayU India. \emph{PayU Hosted Checkout Integration}. \url{https://docs.payu.in}, 2025.
+\bibitem[OWASP21]{owasp} OWASP Foundation. \emph{OWASP Top 10: 2021}. 2021.
+\end{thebibliography}
+
+\end{document}

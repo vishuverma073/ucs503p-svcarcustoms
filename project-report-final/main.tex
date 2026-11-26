@@ -1,0 +1,795 @@
+\documentclass{tietreport}
+
+\coursecode{UCS503 - Software Engineering}
+\projecttitle{SV Car Customs}
+\projectsubtitle{An E-Commerce Platform for Vehicle-Compatible Car Accessories}
+\students{%
+  \texttt{1024170242} Vishu Verma\\
+  \texttt{1024170241} Raghu Verma\\
+  \texttt{1024170229} Pratham Sharma\\
+  \texttt{1024170231} Tarush Mohindru}
+\group{Group: \texttt{3Q24} BE Third Year, COPC}
+\supervisor{Ms.\ Anushka Chaudhary}
+\evaluation{Final Evaluation}
+
+\begin{document}
+\maketitle
+\pagenumbering{roman}
+\tableofcontents
+\listoffigures
+\listoftables
+\cleardoublepage
+\pagenumbering{arabic}
+
+% =====================================================================
+\chapter{Introduction}
+% =====================================================================
+
+\section{Background and Context}
+
+SV Car Customs is a Delhi-based business that sells aftermarket car
+accessories (body kits, spoilers, diffusers, exhausts, lighting, steering
+wheels, paddle shifters and interior parts) to customers across India. The
+business previously sold through a hosted no-code storefront, which gave
+little control over search visibility, checkout, payment handling and product
+data.
+
+This project replaces that storefront with a custom platform that the team
+designed, built, tested and deployed. The platform is live at
+\url{https://www.svcarcustoms.in} and is used by the business for real
+orders. It has two parts: a customer storefront, where shoppers browse by car
+model and part type, check vehicle fitment and pay online, and an
+administration panel, where the owner manages the catalogue, orders, settings
+and marketing content without developer help.
+
+This final report documents the complete system: its requirements, its design
+(UML, DFD and data model), its implementation, how it was verified, and what
+was measured after it went live. All figures in Chapter~\ref{ch:results} were
+measured on the code submitted with this report (repository revision of
+26~November~2026) or on the live site.
+
+\subsection{Problem Statement}
+
+A generic product catalogue cannot express whether an accessory fits a
+particular car make and model, so customers order parts that do not fit or
+abandon the purchase. Customers also need correct prices and a payment flow
+that cannot be manipulated from the browser, while the owner needs one place
+to maintain products, variants, stock, orders and Cash-on-Delivery (COD)
+collection.
+
+The project therefore addresses the need for a \emph{vehicle-aware commerce
+system} in which:
+\begin{itemize}
+  \item products are linked to the vehicles they fit, and shoppers can filter
+        the catalogue by their own car;
+  \item the server, not the browser, computes every price and confirms every
+        payment;
+  \item no paid order is lost even if the customer closes the browser during
+        payment; and
+  \item the owner controls catalogue, prices, settings and fulfilment from an
+        admin panel.
+\end{itemize}
+
+\section{Project Objectives}
+
+The objectives below were fixed in the Software Requirements Specification
+(SRS, version 1.0, 15 October 2026) and are written in SMART form.
+Chapter~\ref{ch:results} reports which ones were met.
+
+\begin{enumerate}
+  \item \textbf{Objective 1 -- Fitment-aware shopping.} A customer can find a
+        part that fits their car and finish a purchase on a phone in at most
+        three checkout screens, by the end of the semester.
+  \item \textbf{Objective 2 -- Owner control.} The owner can change products,
+        prices, categories, home-page content, tax and shipping settings
+        without a code change, and every admin change is recorded in an
+        audit log.
+  \item \textbf{Objective 3 -- Payment integrity.} Every online payment is
+        confirmed by a server-side hash check, and a background job settles
+        orders whose payment callback never arrived, so no paid order is lost.
+  \item \textbf{Objective 4 -- Search visibility.} The store publishes a
+        sitemap, product structured data and a Google Merchant Center feed,
+        and every public page is indexable.
+  \item \textbf{Objective 5 -- Quality.} Automated tests run on every change
+        through continuous integration (CI); pages are served from cache with
+        a target Largest Contentful Paint (LCP) under 2.5\,s on 4G.
+\end{enumerate}
+
+% =====================================================================
+\chapter{Methodology and Design}
+% =====================================================================
+
+\section{Software Development Life Cycle}
+
+The team followed an \textbf{iterative and incremental} model with short
+(roughly weekly) iterations, which matches the course requirement of
+``build, test and ship'' in fast cycles. A pure Waterfall model was rejected
+because requirements such as payment-gateway behaviour, image hosting limits
+and search ranking could only be learnt by shipping and observing. Each
+increment followed the same loop: plan $\rightarrow$ design $\rightarrow$
+implement $\rightarrow$ test in CI $\rightarrow$ deploy $\rightarrow$ review.
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\linewidth}{l X}
+\toprule
+\textbf{Increment} & \textbf{Delivered scope} \\
+\midrule
+Phase 0 -- Foundations & Monorepo, database schema, migrations, contracts package, deployment. \\
+Phase 1 -- Admin & Admin login, product/category management, image upload. \\
+Phase 2 -- Read paths & Catalogue, category and product pages, server-side rendering. \\
+Phase 3 -- Auth and cart & Email OTP login, JWT sessions, persistent cart. \\
+Phase 4 -- Payments & Checkout, payment gateway hand-off, webhooks (moved to PayU). \\
+Phase 5 -- Caching and observability & Redis cache, rate limiting, Sentry, structured logs. \\
+Phase 6 -- Search and polish & Search, vehicle fitment, ``My Garage'', SEO. \\
+Post-launch increments & Guest checkout, COD advance, promo codes, analytics, CI guards, mobile fixes. \\
+\bottomrule
+\end{tabularx}
+\caption{Development increments (from the project's phase documents and git history)}
+\label{tab:phases}
+\end{table}
+
+The work spans 118 commits on the main branch between 31~May and
+25~November~2026. Changes reach production only through pull requests that
+pass CI (Section~\ref{sec:testing}).
+
+\section{Requirements Summary}
+
+The full SRS (version 1.1) is submitted separately (\texttt{srs/main.pdf} in
+the repository). It defines 47 functional requirements in seven groups
+(catalogue, search and fitment, cart and checkout, payments, accounts,
+admin, SEO) and 15 non-functional requirements (performance, reliability,
+security). Table~\ref{tab:trace} traces the high-priority requirements to
+their implementation and to the evidence used to verify them.
+
+\begin{table}[H]
+\centering\footnotesize
+\begin{tabularx}{\linewidth}{l X X}
+\toprule
+\textbf{Requirement} & \textbf{Implemented in} & \textbf{Verified by} \\
+\midrule
+FR-CAT-02/06 Category pages, hide drafts & \texttt{/category/[slug]}, products API filters on \texttt{status=active} & Storefront and API unit tests; live page \\
+FR-SRC-02/03 Fitment & \texttt{vehicle\_makes}, \texttt{vehicle\_models}, \texttt{product\_fitments}; PDP fitment list & API tests; live PDP \\
+FR-CHK-04 Server pricing & \texttt{lib/pricing.ts}, \texttt{lib/place-order.ts} & Pricing unit tests \\
+FR-CHK-05 Guest checkout & \texttt{/guest-checkout} route & API tests \\
+FR-PAY-01/02 Signed hash, verify & \texttt{lib/payu.ts}, \texttt{/webhooks} & Hash and webhook tests \\
+FR-PAY-03 COD advance & \texttt{lib/payment-amount.ts} (15\% advance) & Payment-amount tests \\
+FR-PAY-05 Reconciliation & Inngest \texttt{reconcile-pending} (every 15 min) & Reconcile tests \\
+FR-ADM-01 Admin session & Separate admin JWT secret, DB re-check of admin flag & Auth tests \\
+FR-ADM-10 Audit log & \texttt{audit\_log} table, \texttt{lib/audit.ts} & API tests \\
+FR-SEO-01/03 Sitemap, feed & \texttt{sitemap.ts}, \texttt{feed.xml} & Live: 149 URLs, 95 feed items \\
+NFR-SEC-04 Rate limits & \texttt{lib/ratelimit.ts} on OTP and login & Auth tests \\
+\bottomrule
+\end{tabularx}
+\caption{Traceability of high-priority requirements}
+\label{tab:trace}
+\end{table}
+
+\section{System Architecture}
+
+\subsection{High-Level Design}
+
+The system is a three-tier web application split into two independently
+deployed applications that share typed request/response contracts
+(Figure~\ref{fig:arch}):
+
+\begin{itemize}
+  \item \textbf{Storefront and admin panel} (\texttt{code/svcar-india}):
+        a Next.js application on Vercel. Catalogue, category and product
+        pages are rendered on the server and cached (Incremental Static
+        Regeneration); an admin change purges the affected pages through a
+        webhook.
+  \item \textbf{REST API} (\texttt{code/svcar-api}): a Hono service in a
+        Docker container on Fly.io (Mumbai region). It owns all business
+        rules, validation, pricing and database access.
+  \item \textbf{Data}: PostgreSQL and object storage on Supabase; Upstash
+        Redis for caching and rate limits.
+  \item \textbf{External services}: PayU (payments), Resend (email), MSG91
+        (order SMS), India Post (pincode lookup), Inngest (background jobs),
+        Sentry (errors), Google Search and Merchant Center.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[node distance=9mm and 6mm]
+  \node[ext] (cust) {Customer browser\\(storefront)};
+  \node[ext, right=40mm of cust] (adm) {Owner / staff browser\\(admin panel)};
+  \node[box, below=12mm of $(cust)!0.5!(adm)$, minimum width=72mm] (web) {\textbf{Vercel} -- Next.js 16 / React 19\\server-rendered, cached pages; session proxy};
+  \node[box, below=10mm of web, minimum width=72mm] (api) {\textbf{Fly.io} -- Hono REST API (Node.js 20)\\JWT auth, Zod validation, pricing, orders};
+  \node[ext, below left=12mm and -12mm of api] (db) {Supabase\\PostgreSQL + Storage};
+  \node[ext, below=12mm of api] (payu) {PayU\\hosted checkout};
+  \node[ext, below right=12mm and -12mm of api] (jobs) {Inngest, Resend,\\MSG91, Redis};
+  \node[ext, left=8mm of api] (pin) {India Post\\pincode API};
+  \node[ext, right=6mm of adm] (g) {Google Search /\\Merchant Center};
+  \draw[arr] (cust) -- node[lbl]{HTTPS} (web);
+  \draw[arr] (adm) -- node[lbl]{HTTPS} (web);
+  \draw[arr] (web) -- node[lbl]{JSON / REST} (api);
+  \draw[arr] (api) -- node[lbl]{Drizzle ORM} (db);
+  \draw[arr,<->] (api) -- node[lbl]{hash + webhook} (payu);
+  \draw[arr] (api) -- node[lbl]{events} (jobs);
+  \draw[arr] (api) -- (pin);
+  \draw[arr] (g) |- node[lbl,pos=0.75]{crawl, feed.xml} (web.east);
+\end{tikzpicture}}
+\caption{System architecture and external services}
+\label{fig:arch}
+\end{figure}
+
+The browser is outside the trust boundary: totals, ownership claims and
+payment status sent by the browser are never trusted. Customer session
+cookies are issued through a same-origin proxy in Next.js, so they stay
+first-party in browsers that block third-party cookies.
+
+\subsection{Technical Stack}
+
+\begin{itemize}
+  \item \textbf{Framework/Language:} TypeScript throughout; Next.js 16 and
+        React 19 (frontend); Hono 4 on Node.js 20 (backend).
+  \item \textbf{Database:} PostgreSQL (Supabase) accessed through Drizzle ORM;
+        28 tables created by 22 versioned SQL migrations.
+  \item \textbf{Tools:} Git and GitHub, GitHub Actions (CI), Vitest, Mock
+        Service Worker (MSW), Docker, Vercel, Fly.io, Sentry.
+  \item \textbf{Libraries:} Tailwind CSS 4, Zustand (client state), SWR
+        (data fetching), Zod (schema validation), bcrypt (hashing), Upstash
+        Redis client, Inngest SDK.
+\end{itemize}
+
+\section{Implementation Details}
+
+\subsection{Module 1: Core Functionality}
+
+\paragraph{Catalogue, variants and vehicle fitment.}
+Products, images and categories form the catalogue; a product can belong to
+several categories through the \texttt{product\_categories} junction table.
+Sellable variants are modelled as SKUs built from \emph{dimensions} (for
+example finish or size) and their values, so price and stock belong to the
+SKU, not to the product. Fitment links a product to vehicle models through
+\texttt{product\_fitments}. The ``My Garage'' selector stores the shopper's
+car in the browser and filters search and category results to parts that fit
+it; product pages list every vehicle a product fits.
+
+\paragraph{Customer and admin authentication.}
+Customers sign in with a six-digit one-time password (OTP) sent by email.
+The code is generated with a cryptographic random source, stored only as a
+bcrypt hash, expires after five minutes and allows five attempts; the
+attempt counter is incremented atomically in SQL so concurrent guesses
+cannot exceed the limit. Sending is rate-limited per email and per IP
+address (15 per hour). A successful login issues a short-lived access token
+and an httpOnly refresh cookie whose identifier can be revoked. Customers may
+later set a password. Admin tokens are signed with a separate secret, and
+every admin request re-checks the admin flag in the database.
+
+\paragraph{Cart, checkout and pricing.}
+Logged-in customers have a persistent cart; guests keep the cart in the
+browser and can check out without an account (their orders are linked to
+the account if they later sign in with the same email). At checkout the API
+reloads the SKUs from the database, rejects inactive products, and computes:
+
+\begin{align*}
+  \text{subtotal } S &= \textstyle\sum_i q_i \cdot p_i \quad(\text{current SKU prices, in paise})\\
+  \text{shipping } F &= \begin{cases}0 & S \ge T_{\text{free}}\\ F_{\text{flat}} & \text{otherwise}\end{cases}\\
+  \text{total } T &= (S - D) + F, \qquad \text{GST shown} = (S-D) - \frac{S-D}{1+g}
+\end{align*}
+
+where $D$ is a validated promo-code discount and $g$, $T_{\text{free}}$ and
+$F_{\text{flat}}$ are admin settings (defaults: 28\% GST, free shipping from
+\rupee5,000, otherwise a \rupee200 flat fee). Free shipping is decided on the
+subtotal before the discount, which is the figure the shopper sees against the
+threshold; all arithmetic is done in integer paise to avoid rounding errors. Prices are GST-inclusive, so
+GST is displayed, not added again. For COD the customer pays a 15\% advance
+online and the balance on delivery.
+
+\paragraph{Payment processing.}
+The order is created \emph{before} payment with a unique order number. The
+browser is redirected to PayU with a SHA-512 signed request. The return
+callback and the server-to-server webhook both verify PayU's response hash
+and check the paid amount against the order before marking it paid; an
+invalid callback cannot change the order. A background job runs every 15
+minutes, asks PayU about orders still pending, and settles any that were paid
+but whose callback was lost. A second job sends the confirmation email and SMS
+when an order is paid.
+
+\subsection{Module 2: Secondary Features}
+
+\paragraph{Administration.}
+The admin panel covers products (with a variant matrix, fitment editor and
+image upload), categories (drag-and-drop ordering, archive and restore),
+orders (filters, status timeline, notes, COD collection), a home-page
+builder, store settings, promo codes, WhatsApp and phone leads, newsletter
+subscribers, live activity, first-party analytics and the audit log.
+Admins can preview a draft product through a private, non-indexed link.
+
+\paragraph{Search engine optimisation.}
+The storefront publishes an XML sitemap, a robots file, canonical URLs,
+Product and Breadcrumb structured data (JSON-LD), generated Open Graph images
+and a product feed for Google Merchant Center. Empty categories and admin or
+preview pages are marked \texttt{noindex} so that search engines skip them.
+
+\paragraph{White-label configuration.}
+A single \texttt{brand.config.ts} file holds the store identity, contact
+details, tax and shipping rules; \texttt{npm run brand:apply} writes the
+derived configuration into both apps, and \texttt{brand:check} fails CI if
+the generated files drift.
+
+\paragraph{Development without a backend.}
+MSW fixtures let the whole storefront and admin panel run in the browser
+without the API, which the team used for UI work and for tests. Mocks are
+disabled in production builds.
+
+\subsection{Use Case Diagrams}
+
+Figure~\ref{fig:uc} shows the actors and their goals. A registered Customer
+can do everything a Guest can, plus view order history and saved addresses.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+  \draw[rounded corners=3pt] (-3.7,-6.4) rectangle (3.7,3.4);
+  \node[font=\small\bfseries] at (0,3.05) {SV Car Customs};
+  \node[uc] (u1) at (0,2.4) {Browse / search catalogue};
+  \node[uc] (u2) at (0,1.6) {Check vehicle fitment};
+  \node[uc] (u3) at (0,0.8) {Manage cart};
+  \node[uc] (u4) at (0,0.0) {Checkout and pay};
+  \node[uc] (u5) at (0,-0.8) {Sign in with email OTP};
+  \node[uc] (u6) at (0,-1.6) {Track order};
+  \node[uc] (u7) at (0,-2.6) {Manage products and categories};
+  \node[uc] (u8) at (0,-3.4) {Process orders / collect COD};
+  \node[uc] (u9) at (0,-4.2) {Edit settings and home page};
+  \node[uc] (u10) at (0,-5.0) {Manage promo codes};
+  \node[uc] (u11) at (0,-5.8) {View analytics and audit log};
+  \actor{-5.6,0.9}{cust}{Guest /\\Customer}
+  \actor{5.6,-4.2}{admin}{Admin}
+  \actor{5.6,0.3}{payu}{PayU\\(external)}
+  \foreach \u in {u1,u2,u3,u4,u5,u6} \draw (-5.3,1.2) -- (\u.west);
+  \foreach \u in {u7,u8,u9,u10,u11} \draw (5.3,-3.9) -- (\u.east);
+  \draw (5.3,0.6) -- (u4.east);
+\end{tikzpicture}
+\caption{Use case diagram}
+\label{fig:uc}
+\end{figure}
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\linewidth}{l X X}
+\toprule
+\textbf{Use case} & \textbf{Precondition} & \textbf{Outcome} \\
+\midrule
+Checkout and pay & Non-empty cart; valid address and pincode & Order exists with a unique number; it becomes \emph{paid} only after a verified PayU response. \\
+Sign in with OTP & Valid email; within rate limits & Access token and refresh cookie issued. \\
+Process orders & Signed-in admin & Status advances along the timeline; change recorded in the audit log. \\
+Manage products & Signed-in admin & Catalogue, variants or fitment updated; cached pages refreshed. \\
+\bottomrule
+\end{tabularx}
+\caption{Use-case preconditions and outcomes}
+\label{tab:uc}
+\end{table}
+
+\subsection{UML Class Diagrams}
+
+Figure~\ref{fig:class} shows the main domain classes. Fitment is an
+association class between Product and VehicleModel; price and stock live on
+SKU. An Order keeps a snapshot of its lines and shipping address, so later
+catalogue or address edits do not change past orders.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\scriptsize,
+  cls/.style={draw,rectangle split,rectangle split parts=3,fill=black!3,align=left,text width=31mm,inner sep=3pt}]
+  \node[cls] (cat) at (-5,3) {\textbf{Category}\nodepart{second}- id, name, slug\\- status\nodepart{third}};
+  \node[cls] (prod) at (0,3) {\textbf{Product}\nodepart{second}- id, title, slug\\- status (enum)\nodepart{third}+ fits(model): bool};
+  \node[cls] (vm) at (5,3) {\textbf{VehicleModel}\nodepart{second}- id, make, model\nodepart{third}};
+  \node[cls] (fit) at (5,0.6) {\textbf{Fitment}\nodepart{second}- productId, modelId\nodepart{third}};
+  \node[cls] (sku) at (0,0.4) {\textbf{SKU}\nodepart{second}- id, price, stock\\- dimension values\nodepart{third}+ inStock(): bool};
+  \node[cls] (img) at (-5,0.6) {\textbf{ProductImage}\nodepart{second}- url, position\nodepart{third}};
+  \node[cls] (user) at (-5,-2.6) {\textbf{User}\nodepart{second}- id, email, phone\\- isAdmin\nodepart{third}+ orders()};
+  \node[cls] (ord) at (0,-2.6) {\textbf{Order}\nodepart{second}- orderNumber, status\\- subtotal, discount\\- shippingFee, gst, total\\- paymentMethod\\- advanceAmount\nodepart{third}+ balanceDue()};
+  \node[cls] (oi) at (5,-2.6) {\textbf{OrderItem}\nodepart{second}- skuId, title, qty\\- unitPrice (snapshot)\nodepart{third}};
+  \node[cls] (ev) at (0,-6.0) {\textbf{OrderEvent}\nodepart{second}- type, note, at\nodepart{third}};
+  \draw (cat) -- node[above]{0..* \quad\quad 0..*} (prod);
+  \draw (prod) -- node[above]{0..* \quad\quad 0..*} (vm);
+  \draw[dashed] ($(prod.east)!0.5!(vm.west)$) -- (fit);
+  \draw[-{Diamond[fill=black]}] (sku) -- node[right]{0..* \ 1} (prod);
+  \draw[-{Diamond[fill=black]}] (img) -- node[above]{1..* \ 1} (prod.south west);
+  \draw (user) -- node[above]{1 \quad\quad 0..*} (ord);
+  \draw[-{Diamond[fill=black]}] (oi) -- node[above]{1..* \quad\quad 1} (ord);
+  \draw[-{Diamond[fill=black]}] (ev) -- node[right]{0..* \ 1} (ord);
+\end{tikzpicture}
+\caption{Domain class diagram (selected attributes)}
+\label{fig:class}
+\end{figure}
+
+\subsection{UML Sequence Diagram}
+
+Figure~\ref{fig:seq} traces an online payment. The API is the only authority
+for prices and payment state.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\scriptsize]
+  \foreach \x/\n/\t in {0/c/Customer UI,3/a/Hono API,6/d/PostgreSQL,9/p/PayU,12/j/Inngest} {
+    \node[box,minimum width=20mm] (\n) at (\x,0) {\t};
+    \draw[dashed,black!50] (\x,-0.45) -- (\x,-9.6);
+  }
+  \draw[arr] (0,-1) -- node[lbl,above=1pt]{1 POST /checkout} (3,-1);
+  \draw[arr] (3,-1.7) -- node[lbl,above=1pt]{2 load cart, SKUs, settings} (6,-1.7);
+  \draw[arr,dashed] (6,-2.4) -- node[lbl,above=1pt]{3 trusted data} (3,-2.4);
+  \draw[arr] (3,-2.9) -- ++(0.5,0) -- ++(0,-0.4) -- ++(-0.5,0); \node[lbl,right] at (3.55,-3.1) {4 compute totals};
+  \draw[arr] (3,-3.9) -- node[lbl,above=1pt]{5 create order + items} (6,-3.9);
+  \draw[arr,dashed] (3,-4.6) -- node[lbl,above=1pt]{6 signed PayU form} (0,-4.6);
+  \draw[arr] (0,-5.3) -- node[lbl,above=1pt,pos=0.35]{7 pay (full or COD advance)} (9,-5.3);
+  \draw[arr] (9,-6.0) -- node[lbl,above=1pt,pos=0.5]{8 callback / webhook} (3,-6.0);
+  \draw[arr] (3,-6.5) -- ++(0.5,0) -- ++(0,-0.4) -- ++(-0.5,0); \node[lbl,right] at (3.55,-6.7) {9 verify hash + amount};
+  \draw (2.2,-7.2) rectangle (12.6,-9.4); \node[anchor=north west,font=\scriptsize\bfseries,draw,fill=white] at (2.2,-7.2) {opt [verified]};
+  \draw[arr] (3,-8.1) -- node[lbl,above=1pt]{10 mark paid, add event} (6,-8.1);
+  \draw[arr] (3,-8.9) -- node[lbl,above=1pt,pos=0.7]{11 order.paid $\rightarrow$ email + SMS} (12,-8.9);
+\end{tikzpicture}
+\caption{Checkout and verified-payment sequence}
+\label{fig:seq}
+\end{figure}
+
+\subsection{UML Activity Diagram}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\scriptsize,node distance=5mm]
+  \draw (-2,1) rectangle (2,-9.4); \draw (2,1) rectangle (7.6,-9.4); \draw (7.6,1) rectangle (10.6,-9.4);
+  \node[font=\footnotesize\bfseries] at (0,0.7) {Customer}; \node[font=\footnotesize\bfseries] at (4.8,0.7) {Application}; \node[font=\footnotesize\bfseries] at (9.1,0.7) {PayU};
+  \fill (0,0.2) circle (1mm);
+  \node[box] (a1) at (0,-0.6) {Select car and SKU};
+  \node[box] (a2) at (0,-1.8) {Enter address\\(sign in or guest)};
+  \node[box] (a3) at (4.8,-1.8) {Validate cart, pincode};
+  \node[box] (a4) at (4.8,-3.0) {Compute subtotal, promo,\\shipping, GST, total};
+  \node[box] (a5) at (4.8,-4.3) {Create order (pending)};
+  \node[box] (a6) at (9.1,-4.3) {Pay full /\\15\% advance};
+  \node[box] (a7) at (4.8,-5.7) {Verify hash and amount};
+  \node[draw,diamond,aspect=1.6,inner sep=1pt] (d) at (4.8,-6.9) {valid?};
+  \node[box] (n) at (3.2,-8.3) {Keep pending,\\allow retry};
+  \node[box] (y) at (6.4,-8.3) {Mark paid,\\notify};
+  \draw[arr] (0,0.1) -- (a1); \draw[arr] (a1) -- (a2); \draw[arr] (a2) -- (a3); \draw[arr] (a3) -- (a4);
+  \draw[arr] (a4) -- (a5); \draw[arr] (a5) -- (a6); \draw[arr] (a6) |- (a7); \draw[arr] (a7) -- (d);
+  \draw[arr] (d) -| node[lbl,pos=0.3]{no} (n); \draw[arr] (d) -| node[lbl,pos=0.3]{yes} (y);
+  \draw (n.south) ++(0,-0.25) circle (1.2mm); \fill (n.south) ++(0,-0.25) circle (0.7mm); \draw (n.south) -- ++(0,-0.13);
+  \draw (y.south) ++(0,-0.25) circle (1.2mm); \fill (y.south) ++(0,-0.25) circle (0.7mm); \draw (y.south) -- ++(0,-0.13);
+\end{tikzpicture}
+\caption{Checkout activity diagram with swimlanes}
+\label{fig:act}
+\end{figure}
+
+\subsection{UML State Machine Diagram}
+
+Figure~\ref{fig:state} uses the exact states of the \texttt{order\_status}
+enumeration in the database. ``Out for delivery'' is recorded as a timeline
+event, not a separate status.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\scriptsize]
+  \fill (-1.7,0) circle (1mm);
+  \node[state] (p) at (0,0) {pending};
+  \node[state] (pa) at (3.6,0) {paid};
+  \node[state] (c) at (7.2,0) {confirmed};
+  \node[state] (s) at (10.8,0) {shipped};
+  \node[state] (x) at (0,-2.4) {cancelled};
+  \node[state] (r) at (5.4,-2.4) {refunded};
+  \node[state] (d) at (10.8,-2.4) {delivered};
+  \draw[arr] (-1.65,0) -- (p);
+  \draw[arr] (p) -- node[lbl,above=2pt]{verified\\payment} (pa);
+  \draw[arr] (pa) -- node[lbl,above=2pt]{admin\\confirms} (c);
+  \draw[arr] (c) -- node[lbl,above=2pt]{dispatch} (s);
+  \draw[arr] (s) -- node[lbl,right=2pt]{received} (d);
+  \draw[arr] (p) -- node[lbl,left=2pt]{fail /\\cancel} (x);
+  \draw[arr] (pa) -- node[lbl,left=4pt]{refund} (r);
+  \draw[arr] (c) -- node[lbl,right=4pt]{refund} (r);
+  \draw[arr] ([xshift=-4mm]p.north) to[out=110,in=70,looseness=3] node[lbl,above]{payment failed, retry} ([xshift=4mm]p.north);
+  \draw (d.south) ++(0,-0.35) circle (1.2mm); \fill (d.south) ++(0,-0.35) circle (0.7mm); \draw (d.south) -- ++(0,-0.23);
+\end{tikzpicture}
+\caption{Order state machine (from the \texttt{order\_status} enum)}
+\label{fig:state}
+\end{figure}
+
+\subsection{Data Flow Diagrams}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\scriptsize]
+  \node[proc,minimum size=28mm] (sys) at (0,0) {0.0\\SV Car Customs\\platform};
+  \node[ext] (c) at (-6,1.8) {Customer};
+  \node[ext] (a) at (6,1.8) {Admin};
+  \node[ext] (p) at (-6,-1.8) {PayU};
+  \node[ext] (n) at (6,-1.8) {Email / SMS\\providers};
+  \node[ext] (g) at (0,-3.6) {Google};
+  \draw[arr] (c.east) to[bend left=10] node[lbl,above=2pt]{search, cart,\\address, payment} (sys.north west);
+  \draw[arr] (sys.west) to[bend left=10] node[lbl,below=2pt]{pages,\\order status} (c.south);
+  \draw[arr,<->] (p.east) -- node[lbl,below=2pt]{payment request / result} (sys.south west);
+  \draw[arr] (a.west) -- node[lbl,above=2pt]{products, settings,\\order status} (sys.north east);
+  \draw[arr] (sys.south east) -- node[lbl,below=2pt]{notifications} (n.west);
+  \draw[arr] (sys.south) -- node[lbl,right=2pt]{sitemap, feed} (g.north);
+\end{tikzpicture}
+\caption{Level-0 data flow diagram (context)}
+\label{fig:dfd0}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\scriptsize]
+  \node[ext] (c) at (-5,2.8) {Customer};
+  \node[ext] (p) at (0,2.8) {PayU};
+  \node[store] (d3) at (2.6,2.8) {D3 Settings};
+  \node[ext] (a) at (5.2,2.8) {Admin};
+  \node[proc] (p1) at (-5,0) {1.0\\Browse\\and cart};
+  \node[proc] (p2) at (0,0) {2.0\\Checkout\\and payment};
+  \node[proc] (p3) at (5.2,0) {3.0\\Order\\management};
+  \node[store] (d1) at (-5,-3) {D1 Catalogue};
+  \node[store] (d2) at (2.6,-3) {D2 Orders};
+  \draw[arr] (c) -- node[lbl]{search,\\add to cart} (p1);
+  \draw[arr] (d1) -- node[lbl]{products,\\fitment} (p1);
+  \draw[arr] (p1) -- node[lbl,above=2pt]{cart items} (p2);
+  \draw[arr,<->] (p) -- node[lbl]{payment} (p2);
+  \draw[arr] (d3.south west) -- node[lbl,pos=0.45]{GST,\\shipping} (p2.north east);
+  \draw[arr] (p3.north west) -- node[lbl,pos=0.55]{settings} (d3.south east);
+  \draw[arr] (p2.south east) -- node[lbl]{new order} (d2.north west);
+  \draw[arr,<->] (d2.north east) -- node[lbl]{order updates} (p3.south west);
+  \draw[arr,<->] (a) -- node[lbl]{status,\\settings} (p3);
+\end{tikzpicture}
+\caption{Level-1 data flow diagram}
+\label{fig:dfd1}
+\end{figure}
+
+\subsection{Data Model}
+
+The database has 28 tables (Table~\ref{tab:data}). Customer and Admin are
+roles of one \texttt{users} table with an \texttt{is\_admin} flag.
+
+\begin{table}[H]
+\centering\footnotesize
+\begin{tabularx}{\linewidth}{l X}
+\toprule
+\textbf{Area} & \textbf{Tables} \\
+\midrule
+Catalogue & categories, products, product\_images, product\_categories \\
+Variants & dimensions, dimension\_values, skus \\
+Fitment & vehicle\_makes, vehicle\_models, product\_fitments \\
+Customers & users, otp\_codes, addresses \\
+Commerce & carts, cart\_items, orders, order\_items, order\_events, order\_backups, promo\_codes \\
+Operations & settings, home\_config, audit\_log, admin\_push\_subscriptions \\
+Growth & subscribers, analytics\_events, whatsapp\_leads, phone\_leads \\
+\bottomrule
+\end{tabularx}
+\caption{Data model by area (28 tables)}
+\label{tab:data}
+\end{table}
+
+% =====================================================================
+\chapter{Results and Evaluation}\label{ch:results}
+% =====================================================================
+
+\section{Testing Methodology}\label{sec:testing}
+
+\begin{itemize}
+  \item \textbf{Unit testing:} Vitest suites cover pricing, promo rules,
+        payment hashes, payment amounts, OTP limits, cart state, checkout
+        helpers, category trees, SEO metadata and UI components.
+  \item \textbf{Integration testing:} API route tests run full HTTP requests
+        through the Hono app with test doubles for the database and external
+        services; storefront tests run against MSW handlers that mimic the
+        API contracts. A separate end-to-end script places a real checkout
+        against a running API.
+  \item \textbf{Security testing:} a test catalogue mapped to OWASP risks
+        (ownership checks, JWT handling, payment integrity, injection,
+        uploads, business-logic abuse) guided dedicated tests, for example
+        that a callback with a wrong hash or amount cannot mark an order paid.
+  \item \textbf{Continuous integration:} every pull request runs API
+        type-check, tests and build, storefront type-check, tests, build and
+        lint, and the brand-drift check. Separate workflows block direct
+        pushes to \texttt{main} and flag changes to sensitive paths.
+  \item \textbf{Performance testing:} response times were measured on the
+        live site and Lighthouse (mobile profile) was run on live pages.
+  \item \textbf{User testing:} no formal usability study was run; real
+        usage was observed through analytics after launch (Section~\ref{sec:analytics}).
+\end{itemize}
+
+\begin{table}[H]
+\centering\small
+\begin{tabular}{l r r r}
+\toprule
+\textbf{Suite} & \textbf{Test files} & \textbf{Tests} & \textbf{Result} \\
+\midrule
+API (\texttt{svcar-api}) & 56 & 399 & 398 passed, 1 skipped \\
+Storefront (\texttt{svcar-india}) & 57 & 486 & 486 passed \\
+Type-check (both apps) & -- & -- & no errors \\
+\midrule
+\textbf{Total} & \textbf{113} & \textbf{885} & \textbf{884 passed, 0 failed} \\
+\bottomrule
+\end{tabular}
+\caption{Automated test results (run on 26 November 2026)}
+\label{tab:tests}
+\end{table}
+
+The skipped API test needs a live database and is run only in that
+environment.
+
+\section{Performance Metrics}
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\linewidth}{X l l}
+\toprule
+\textbf{Metric} & \textbf{Target (SRS)} & \textbf{Achieved} \\
+\midrule
+Cached page, time to first byte (home, shop, category; median of 3) & $<$ 300\,ms & 375--437\,ms \\
+Sitemap / feed response & -- & 334\,ms / 545\,ms \\
+API response, public endpoint (median of 5) & $<$ 1\,s & 1.26\,s \\
+LCP, Lighthouse mobile (home / category) & $<$ 2.5\,s & 10.8\,s / 9.4\,s \\
+Lighthouse SEO score & -- & 100 / 100 \\
+Lighthouse accessibility score & -- & 91 / 94 \\
+Lighthouse performance score & -- & 62 / 63 \\
+Cumulative Layout Shift & -- & 0 / 0 \\
+Automated tests passing & 100\% & 100\% (884 of 884 run) \\
+Indexed URLs in sitemap / items in feed & -- & 149 / 95 \\
+\bottomrule
+\end{tabularx}
+\caption{Measured results against targets (live site, 26 November 2026)}
+\label{tab:perf}
+\end{table}
+
+Response times were measured from a client in India over a home connection,
+so they include network latency. Lighthouse simulates a slow 4G mobile
+connection and a throttled CPU; its LCP is a pessimistic lab figure, not the
+75th-percentile field value the SRS target refers to, which needs Vercel
+Speed Insights data that is not yet enabled.
+
+\section{Post-launch Usage}\label{sec:analytics}
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\linewidth}{X l}
+\toprule
+\textbf{Google Search Console, 15 Oct -- 11 Nov 2026} & \textbf{Value} \\
+\midrule
+Clicks from Google search & 81 \\
+Impressions & 2,477 \\
+Click-through rate & 3.3\% \\
+Average position & 14.8 \\
+Top query by clicks & ``svcarcustoms'' (13 clicks, position 1.9) \\
+\bottomrule
+\end{tabularx}
+\caption{Organic search performance after launch}
+\label{tab:gsc}
+\end{table}
+
+The store's own analytics for the 28 days before 9 November 2026 recorded
+about 850 visitors (Instagram and direct visits were the largest sources),
+71 checkout views and 1 confirmed order. These first-party numbers do not yet
+filter out bots or the team's own visits.
+
+\section{Analysis}
+
+\paragraph{Did we meet our objectives?}
+\begin{itemize}
+  \item \textbf{Objective 1 (fitment-aware shopping): met.} Fitment, ``My
+        Garage'' filtering, guest checkout and a single checkout page (cart $\rightarrow$
+        checkout $\rightarrow$ PayU, within the three-screen limit) are live.
+  \item \textbf{Objective 2 (owner control): met.} Products, prices, tax,
+        shipping, home page and promo codes are all edited in the admin panel;
+        every change is written to the audit log.
+  \item \textbf{Objective 3 (payment integrity): met.} Hash and amount
+        verification and the 15-minute reconciliation job are implemented and
+        covered by tests.
+  \item \textbf{Objective 4 (search visibility): met for the technical part.}
+        Sitemap, structured data and feed are live and Lighthouse SEO scores
+        100; organic traffic is still mostly brand searches.
+  \item \textbf{Objective 5 (quality): partly met.} CI and the test suite are
+        in place and green, but measured page speed (Table~\ref{tab:perf})
+        does not yet meet the 300\,ms and 2.5\,s targets.
+\end{itemize}
+
+\paragraph{Where did we exceed expectations?}
+Scope grew beyond the SRS: guest checkout, promo codes, first-party analytics,
+admin push notifications, phone leads and the white-label brand
+configuration were not in version~1.0 of the SRS.
+
+\paragraph{What challenges did we encounter, and how were they resolved?}
+\begin{itemize}
+  \item \emph{Third-party cookies:} refresh cookies set by the API domain were
+        blocked by some browsers, logging customers out. Session routes were
+        moved behind a same-origin Next.js proxy so the cookie is first-party.
+  \item \emph{Image optimisation quota:} Vercel's free image-optimisation
+        quota ran out; a custom image loader now uses Supabase's image
+        rendering endpoint.
+  \item \emph{Database connectivity outage:} the API could not reach the
+        database over a direct IPv6 connection, which took the store offline.
+        Switching to Supabase's session pooler restored service; cached
+        storefront pages are kept (not replaced by error pages) while the API is down.
+  \item \emph{Low checkout conversion:} analytics showed many checkout views
+        but few orders; mobile layout fixes were shipped and conversion is still
+        being monitored.
+\end{itemize}
+
+% =====================================================================
+\chapter{Conclusion}
+% =====================================================================
+
+\section{Summary of Work}
+
+The team built and deployed a complete vehicle-aware e-commerce platform for
+a real business: a Next.js storefront and admin panel, a Hono REST API, a
+28-table PostgreSQL schema and integrations with PayU, Inngest, Resend,
+MSG91, India Post and Google. The work was delivered in weekly increments,
+documented through an SRS, UML views, data-flow diagrams and a data model,
+and verified by 884 passing automated tests in CI. Four of the five objectives
+were met in full; the performance objective was met for testing and CI but not
+yet for page speed.
+
+\section{Team Contributions}
+
+The work was divided into four equal areas, one per member.
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\linewidth}{l l X}
+\toprule
+\textbf{Member} & \textbf{Area} & \textbf{Main work} \\
+\midrule
+Vishu Verma & Payments and deployment & PayU integration, COD advance, payment reconciliation job, checkout API, Vercel and Fly.io deployment \\
+Raghu Verma & Backend and database & Database schema and migrations, REST API routes, email-OTP and admin authentication, rate limits, audit log \\
+Pratham Sharma & Frontend & Storefront pages, admin panel UI, My Garage selector, image loading, mobile layout \\
+Tarush Mohindru & Quality and SEO & Test suites, CI workflows, SEO (sitemap, structured data, feed), SRS, UML diagrams and reports \\
+\bottomrule
+\end{tabularx}
+\caption{Division of work}
+\label{tab:team}
+\end{table}
+
+\section{Key Findings}
+
+\begin{itemize}
+  \item \textbf{Finding 1:} Modelling fitment as a product--vehicle
+        association and price/stock on the SKU kept variant selection and
+        compatibility independent, which made the ``My Garage'' filter a
+        query rather than a special case.
+  \item \textbf{Finding 2:} Treating the browser as untrusted (server-side
+        pricing, hash and amount verification, reconciliation) was essential;
+        payment callbacks do get lost in practice, and the reconciliation job
+        is what guarantees no paid order is lost.
+  \item \textbf{Finding 3:} The unexpected result was that technical SEO was
+        not enough on its own: Lighthouse SEO scored 100, but almost all Google
+        clicks still came from brand searches. Ranking for product queries
+        needs product-specific content and time.
+\end{itemize}
+
+\section{Future Work and Recommendations}
+
+\begin{enumerate}
+  \item Verified-purchase customer reviews and ratings (designed and
+        implemented on a separate branch; awaiting database migration).
+  \item Automatic courier booking and live shipment tracking.
+  \item Page-speed work towards the 2.5\,s LCP target: smaller hero images,
+        fewer client-side scripts on the home page, and field measurement
+        with Vercel Speed Insights.
+  \item Moving the API and database to the same region to remove
+        cross-region latency from every API call.
+  \item A small usability study (5--8 users) of the vehicle-selection and
+        checkout flow, and a native Android app.
+\end{enumerate}
+
+\section{Final Remarks}
+
+Building a system that real customers pay through taught us that software
+engineering practice matters most at the boundaries: requirements that can be
+traced to tests, a CI pipeline that blocks unsafe changes, and designs that
+assume external services will fail. The platform now runs the business's
+online sales, and the remaining work is measured and prioritised rather than
+guessed.
+
+\begin{thebibliography}{PayU25}
+\bibitem[Next25]{next} Vercel. \emph{Next.js Documentation (App Router)}. \url{https://nextjs.org/docs}, 2025.
+\bibitem[Hono25]{hono} Hono. \emph{Hono -- Web framework built on Web Standards}. \url{https://hono.dev}, 2025.
+\bibitem[Driz25]{drizzle} Drizzle Team. \emph{Drizzle ORM Documentation}. \url{https://orm.drizzle.team}, 2025.
+\bibitem[PayU25]{payu} PayU India. \emph{PayU Hosted Checkout Integration}. \url{https://docs.payu.in}, 2025.
+\bibitem[OWASP21]{owasp} OWASP Foundation. \emph{OWASP Top 10: 2021}. \url{https://owasp.org/Top10}, 2021.
+\bibitem[IEEE830]{ieee830} IEEE. \emph{IEEE Recommended Practice for Software Requirements Specifications (Std 830-1998)}. 1998.
+\bibitem[Goog25]{google} Google. \emph{Search Central: Product structured data}. \url{https://developers.google.com/search/docs}, 2025.
+\bibitem[SRS26]{srs} V.~Verma, R.~Verma, P.~Sharma, T.~Mohindru. \emph{Software Requirements Specification for SV Car Customs, v1.0}. UCS503, TIET, 15 Oct 2026.
+\end{thebibliography}
+
+\end{document}
