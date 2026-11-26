@@ -1,0 +1,240 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{graphicx}
+\usepackage{xcolor}
+
+% -----------------------------------------------------
+% bvraghav-tiet-ucs503p-article.sty
+% -----------------------------------------------------
+
+% Variable: Lab Instructor
+\makeatletter \newcommand{\BvrSetLabInstructor}[1]{%
+  \gdef\Bvr@LabInstructor{#1}}
+% default
+\newcommand{\Bvr@LabInstructor}{Dr. Raghav %
+  B. Venkataramaiyer}
+% public accessor
+\newcommand{\BvrLabInstructorValue}{\Bvr@LabInstructor}
+\makeatother
+
+% Add subtitle
+\usepackage{titling}
+% -- Set title bold
+\pretitle{\begin{center}\bfseries\fontsize{18bp}{18bp}\selectfont}
+\makeatletter
+\newcommand{\BvrSubtitle}[1]{%
+  \posttitle{%
+    \par\end{center}
+    \begin{center}\large#1\end{center}
+    \vskip 0.5em}%
+}
+\makeatother
+
+% Hints in the section title(s)
+\newcommand{\BvrHint}[1]{%
+  {\normalfont\normalsize\itshape\hfill #1}}
+
+% -----------------------------------------------------
+
+\title{SV Car Customs: A Vehicle-Aware E-Commerce Platform for Car Accessories}
+
+\BvrSetLabInstructor{Ms.\ Anushka Chaudhary}
+
+\BvrSubtitle{%
+  Project Proposal for UCS503P  \\
+  Submitted to: \BvrLabInstructorValue \\ \bfseries
+  Thapar Institute of Engineering and Technology%
+}
+
+\author{
+  Vishu Verma, COPC\thanks{Roll No: \texttt{1024170242}}
+  \and
+  Raghu Verma, COPC\thanks{Roll No: \texttt{1024170241}}
+  \and
+  Pratham Sharma, COPC\thanks{Roll No: \texttt{1024170229}}
+  \and
+  Tarush Mohindru, COPC\thanks{Roll No: \texttt{1024170231}}
+}
+
+\date{Group \texttt{3Q24} \quad (revised 26 November 2026)}
+
+\begin{document}
+\maketitle
+
+\section{Higher-order goal%
+  \BvrHint{\ldots secondary framing}}
+Help a small Indian retail business sell online on its own terms: own its
+customer data, appear in Google search, and take payments safely, without
+depending on a hosted no-code store. The immediate engineering objective is a
+deployable e-commerce platform for SV Car Customs, a Delhi seller of
+aftermarket car accessories.
+
+\section{Time-to-value %
+\BvrHint{\ldots primary heuristic}}
+\begin{itemize}[leftmargin=0.7cm]
+    \item The first increment is a browsable catalogue with product pages on a
+          public URL, so the owner can share links within the first two weeks.
+    \item Each following week adds one end-to-end slice (admin, login and cart,
+          payments, search and fitment), shipped behind CI.
+    \item Success in iteration 1 is measured by the owner being able to add a
+          product in the admin panel and see it live on the storefront.
+\end{itemize}
+
+\section{Problem Statement}
+SV Car Customs sells body kits, spoilers, diffusers, exhausts, lighting and
+interior parts to car owners across India. Its existing hosted storefront
+causes:
+\begin{itemize}[leftmargin=0.7cm]
+    \item \textbf{Wrong-fit orders:} products are not linked to the car makes
+          and models they fit, so customers must ask on WhatsApp or guess.
+    \item \textbf{Low search visibility:} little control over page titles,
+          structured data or a Google Shopping feed.
+    \item \textbf{Payment friction:} no Cash-on-Delivery option with an online
+          advance, which Indian buyers of high-value parts expect.
+    \item \textbf{Manual operations:} orders, stock and COD collection are
+          tracked outside the store.
+\end{itemize}
+
+\textbf{Why this matters now:} the business already gets most of its traffic
+from Instagram and wants to convert it into orders on its own site.
+
+\section{Proposed Solution %
+\BvrHint{\ldots Software Proposition}}
+\subsection{Overview}
+Build a \textbf{web-based} store with:
+\begin{itemize}[leftmargin=0.7cm]
+    \item \textbf{Storefront:} catalogue by car model and part type, product
+          pages with variants and fitment, search, cart and checkout.
+    \item \textbf{Vehicle fitment:} products linked to vehicle makes and models;
+          a ``My Garage'' selector to show only parts that fit.
+    \item \textbf{Payments:} PayU online payment, prepaid or COD with a 15\%
+          online advance.
+    \item \textbf{Admin panel:} products, categories, orders, COD collection,
+          settings, home page and an audit log.
+    \item \textbf{SEO:} sitemap, structured data and a Merchant Center feed.
+\end{itemize}
+
+\subsection{Core workflow}
+\begin{enumerate}[leftmargin=0.7cm]
+    \item Customer selects their car and browses parts that fit it.
+    \item Customer adds a variant (SKU) to the cart and checks out.
+    \item The server computes the total and creates the order, then redirects to
+          PayU.
+    \item The server verifies PayU's response and marks the order paid.
+    \item The owner ships the order and updates its status; the customer tracks it.
+\end{enumerate}
+
+\subsection{Operational constraints}
+\begin{itemize}[leftmargin=0.7cm]
+    \item Mobile-first: most visitors arrive from Instagram on phones.
+    \item Free or low-cost hosting tiers only.
+    \item Product claims (fitment, material) must come from the owner's real
+          data, never be invented.
+\end{itemize}
+
+\section{Solution Approach %
+\BvrHint{\ldots Engineering focus}}
+\subsection{Trusted pricing and payments %
+\BvrHint{\ldots non-research}}
+\begin{itemize}[leftmargin=0.7cm]
+    \item The browser is untrusted: prices are recomputed on the server from the
+          database for every checkout.
+    \item Payment state changes only after the gateway's signed response is
+          verified; a scheduled job reconciles orders whose callback was lost.
+\end{itemize}
+
+\subsection{Web architecture %
+\BvrHint{\ldots web-based solution}}
+\begin{itemize}[leftmargin=0.7cm]
+    \item \textbf{Frontend:} Next.js (React, TypeScript) on Vercel, with
+          server-rendered, cached pages.
+    \item \textbf{Backend API:} Hono (Node.js) on Fly.io: authentication,
+          catalogue, cart, checkout, payments and admin routes.
+    \item \textbf{Database:} PostgreSQL and object storage on Supabase.
+\end{itemize}
+
+\subsection{CI/CD and fast delivery enabler}
+\begin{itemize}[leftmargin=0.7cm]
+    \item GitHub Actions runs type-checks, tests and builds for both apps on
+          every pull request.
+    \item The frontend deploys automatically from the main branch; the API is
+          deployed as a Docker image.
+    \item Direct pushes to the main branch are blocked; changes go through pull
+          requests.
+\end{itemize}
+
+\section{Evaluation Criterion %
+\BvrHint{\ldots measurable and attributable}}
+\subsection{Primary evaluation metric}
+\textbf{Checkout completion:} share of checkout views that end in a confirmed
+order, measured from the store's own analytics events and order records.
+
+\subsection{Secondary evaluation metrics}
+\begin{itemize}[leftmargin=0.7cm]
+    \item \textbf{Payment integrity:} zero paid orders left in \emph{pending}
+          after reconciliation.
+    \item \textbf{Speed:} Largest Contentful Paint under 2.5\,s on 4G; cached
+          pages under 300\,ms.
+    \item \textbf{Search visibility:} clicks and impressions in Google Search
+          Console.
+    \item \textbf{Quality:} all automated tests passing in CI on every merge.
+\end{itemize}
+
+\section{Scalability %
+\BvrHint{\ldots with foresight}}
+\begin{enumerate}[leftmargin=0.7cm]
+    \item \textbf{Theoretically:} stateless API, cached pages, paginated
+          category listings and indexed queries.
+    \item \textbf{Practically:} managed database, container-hosted API and a
+          white-label configuration file so the platform can be reused for
+          another store.
+\end{enumerate}
+
+\section{Engine availability heuristic}
+\begin{itemize}[leftmargin=0.7cm]
+    \item Next.js and Hono for web pages and REST APIs.
+    \item Supabase PostgreSQL and storage; Drizzle ORM.
+    \item PayU for payments; Resend and MSG91 for email and SMS.
+    \item Vitest and Mock Service Worker for testing; GitHub Actions for CI.
+\end{itemize}
+
+\section{Project scope and deliverables %
+\BvrHint{\ldots iteration-friendly}}
+\subsection{Initial deliverable %
+\BvrHint{\ldots first iteration}}
+\begin{itemize}[leftmargin=0.7cm]
+    \item Database schema, catalogue API and storefront category/product pages
+    \item Admin login and product management
+    \item CI: type-check, tests and build for both apps
+    \item Deployment of both apps
+\end{itemize}
+
+\subsection{Subsequent deliverables}
+\begin{itemize}[leftmargin=0.7cm]
+    \item Email-OTP login, cart and checkout
+    \item PayU payments, COD advance and reconciliation job
+    \item Vehicle fitment, search and ``My Garage''
+    \item SEO, analytics and admin order management
+\end{itemize}
+
+\section{Risks and mitigations}
+\begin{itemize}[leftmargin=0.7cm]
+    \item \textbf{Payment callback loss:} webhook plus scheduled reconciliation.
+    \item \textbf{Free-tier limits:} caching, image optimisation outside Vercel's
+          quota, and monitoring of usage.
+    \item \textbf{Inaccurate product data:} owner confirms fitment and materials
+          before publishing.
+    \item \textbf{Security:} hashed OTPs and passwords, rate limits, server-side
+          validation, secrets only in environment variables.
+\end{itemize}
+
+\section{Summary}
+The project replaces a hosted store with a deployable, vehicle-aware
+e-commerce platform for a real business. It meets the course criteria through
+weekly increments backed by CI, measurable evaluation (checkout completion,
+payment integrity, speed and search visibility) and an architecture that can
+scale and be reused.
+
+\end{document}

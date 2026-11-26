@@ -1,0 +1,44 @@
+name: Sensitive path approval
+
+# Fails when a PR touches payments, webhooks, checkout, auth, migrations or
+# production config without an APPROVED review from the code owner.
+# NOTE: on GitHub Free (private repo) this check cannot be made *required*,
+# so it warns but cannot block a merge. With GitHub Pro, add it as a required check.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions: {}
+
+jobs:
+  approval:
+    name: Owner approval for sensitive paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          OWNER: vishuverma073
+        run: |
+          grep -v '^#' .github/scripts/sensitive-paths.txt > re.txt
+          hits=$(gh pr diff "$PR" -R "$REPO" --name-only | grep -Ef re.txt || true)
+          if [ -z "$hits" ]; then echo "No sensitive paths."; exit 0; fi
+          echo "Sensitive files:"; echo "$hits"
+          head=$(gh pr view "$PR" -R "$REPO" --json headRefOid --jq .headRefOid)
+          ok=$(gh api "repos/$REPO/pulls/$PR/reviews" --paginate \
+               --jq "[.[] | select(.user.login==\"$OWNER\" and .state==\"APPROVED\" and .commit_id==\"$head\")] | length")
+          if [ "$ok" -gt 0 ]; then echo "Approved by $OWNER on the latest commit."; exit 0; fi
+          echo "::error::Sensitive paths changed; needs an APPROVED review from $OWNER on the latest commit."
+          exit 1

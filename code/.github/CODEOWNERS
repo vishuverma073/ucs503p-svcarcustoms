@@ -1,0 +1,24 @@
+# Default owner for everything.
+*                                              @vishuverma073
+
+# Restricted paths: always need a human review (see CLAUDE.md).
+/svcar-api/apps/api/src/routes/payments.ts     @vishuverma073
+/svcar-api/apps/api/src/routes/webhooks.ts     @vishuverma073
+/svcar-api/apps/api/src/routes/checkout.ts     @vishuverma073
+/svcar-api/apps/api/src/routes/guest-checkout.ts @vishuverma073
+/svcar-api/apps/api/src/routes/auth.ts         @vishuverma073
+/svcar-api/apps/api/src/lib/payu.ts            @vishuverma073
+/svcar-api/apps/api/src/lib/jwt.ts             @vishuverma073
+/svcar-api/apps/api/src/lib/env.ts             @vishuverma073
+/svcar-api/apps/api/migrations/                @vishuverma073
+/svcar-api/apps/api/src/db/                    @vishuverma073
+/svcar-api/fly.toml                            @vishuverma073
+/svcar-api/Dockerfile                          @vishuverma073
+/svcar-india/src/app/(store)/checkout/         @vishuverma073
+/svcar-india/src/app/auth/                     @vishuverma073
+/svcar-india/src/app/api/                      @vishuverma073
+/svcar-india/vercel.json                       @vishuverma073
+/svcar-india/next.config.ts                    @vishuverma073
+/.github/                                      @vishuverma073
+/CLAUDE.md                                     @vishuverma073
+/.claude/                                      @vishuverma073

@@ -1,0 +1,14 @@
+{
+  "name": "svcar-platform",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "White-label e-commerce platform. brand.config.ts is the single file a new business edits; `npm run brand:apply` pushes it into both apps.",
+  "scripts": {
+    "brand:apply": "node scripts/apply-brand.ts",
+    "brand:check": "node scripts/apply-brand.ts --check"
+  },
+  "engines": {
+    "node": ">=22.6"
+  }
+}

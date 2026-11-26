@@ -1,0 +1,39 @@
+# OS junk
+.DS_Store
+
+# Node (per-project gitignores also cover these)
+node_modules/
+
+# Logs
+*.log
+
+# Environment files — never commit real secrets
+.env
+.env.*
+!.env.example
+*.env
+!*.env.example
+# Written by `npm run brand:apply` — a manifest of required env vars, no values.
+!.env.brand.example
+!*.env.brand.example
+
+# scraped reference data (veronicaindia.com) — regenerate with veronica-data/scrape_veronica.py
+veronica-data/images/
+
+# Working files — reference data and audit output, not app code.
+zelix-data.txt
+audit/
+AUDIT.md
+AUDIT-RULES.md
+final logo.png
+product-descriptions.sql
+product-descriptions-backup.json
+product-fitments.sql
+
+# Database backups — never commit (PII). See svcar-api/docs/devops/DB-BACKUP.md
+*.dump
+*.backup
+*.pgdump
+*.tar.age
+*.tar.enc
+SVCAR-DB-BACKUPS/

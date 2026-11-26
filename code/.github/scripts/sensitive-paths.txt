@@ -1,0 +1,12 @@
+# One extended regex per line. A change matching any line needs owner approval.
+^svcar-api/apps/api/src/routes/(payments|webhooks|checkout|guest-checkout|auth)\.ts$
+^svcar-api/apps/api/src/lib/(payu|jwt|env)\.ts$
+^svcar-api/apps/api/src/inngest/functions/reconcile-
+^svcar-api/apps/api/(migrations|src/db)/
+^svcar-api/(fly\.toml|fly\.staging\.toml|Dockerfile)$
+^svcar-india/src/app/\(store\)/checkout/
+^svcar-india/src/app/(auth|api)/
+^svcar-india/(vercel\.json|next\.config\.ts)$
+^\.github/
+^\.claude/
+^CLAUDE\.md$

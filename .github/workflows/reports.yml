@@ -1,0 +1,31 @@
+name: Reports
+
+# Compiles the LaTeX reports (proposal, SRS, prototype and final) so a broken
+# report fails the build. The committed PDFs are the submitted copies.
+
+on:
+  push:
+    paths: ["project-*/**", "srs/**", "tex/**", ".github/workflows/reports.yml"]
+  pull_request:
+    paths: ["project-*/**", "srs/**", "tex/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  latex:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: wtfjoke/setup-tectonic@v3
+      - name: Compile
+        run: |
+          for d in project-proposal srs project-report-prototype-stage project-report-final; do
+            (cd "$d" && tectonic -X compile main.tex)
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: "*/main.pdf"

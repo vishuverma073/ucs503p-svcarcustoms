@@ -1,0 +1,32 @@
+name: Main branch guard
+
+# Detection, not prevention: GitHub Free cannot block pushes to main on a private repo.
+# Any commit on main that did not arrive through a merged pull request opens an alert issue.
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          n=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '[.[] | select(.merged_at != null)] | length')
+          if [ "$n" -eq 0 ]; then
+            gh issue create -R "$REPO" --label needs-human-review \
+              --title "ALERT: direct push to main ($ACTOR, ${SHA:0:7})" \
+              --body "Commit $SHA reached main without a merged PR. Pushed by @$ACTOR. Review it and roll back on Vercel if needed."
+          fi
