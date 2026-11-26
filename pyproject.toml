@@ -1,4 +1,4 @@
-﻿
+
 [build-system]
 requires = ["hatchling","hatch-vcs"]
 build-backend = "hatchling.build"
@@ -12,3 +12,29 @@ authors = [
   { name="Pratham Sharma" },
   { name="Tarush Mohindru" },
 ]
+description = "SV Car Customs: UCS503 Software Engineering project"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    # See: https://pypi.org/classifiers/
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: POSIX",
+    "Programming Language :: Unix Shell",
+]
+dependencies = ["click"]
+
+[project.urls]
+Homepage = "https://github.com/vishuverma073/ucs503p-svcarcustoms"
+Issues = "https://github.com/vishuverma073/ucs503p-svcarcustoms/issues"
+
+# Adapted from https://stackoverflow.com/a/50156706
+[tool.pytest.ini_options]
+pythonpath = [
+  "code"
+]
+# THE END -------------------------------------------
