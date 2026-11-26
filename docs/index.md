@@ -17,7 +17,7 @@ real Delhi business and live at
 | 1024170231 | Tarush Mohindru | Testing, CI, SEO, documentation |
 
 **Group:** 3Q24, BE Third Year, COPC
-**Submitted to:** Ms. Anushka Chaudhary
+**Submitted to:** Ms. Anushka
 
 ## What the system does
 

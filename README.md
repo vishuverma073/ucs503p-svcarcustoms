@@ -13,7 +13,7 @@ Project site (docs, design, viva notes, journals):
 | 1024170229 | Pratham Sharma  | Storefront and admin UI, mobile layout |
 | 1024170231 | Tarush Mohindru | Testing, CI, SEO, documentation |
 
-Group 3Q24, BE Third Year, COPC — submitted to Ms. Anushka Chaudhary,
+Group 3Q24, BE Third Year, COPC — submitted to Ms. Anushka,
 Thapar Institute of Engineering and Technology.
 
 This repository follows the
