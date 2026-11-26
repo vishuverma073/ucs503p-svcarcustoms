@@ -1,0 +1,32 @@
+# STAGING API. Deploy ONLY with:  fly deploy -c fly.staging.toml
+# (plain `fly deploy` uses fly.toml = PRODUCTION app svcar-api-staging)
+app = "svcar-api-dev"
+primary_region = "bom"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8787"
+  NODE_ENV = "production"
+  APP_TIER = "staging"
+  PAYU_MODE = "test"
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[[http_service.checks]]
+  method = "GET"
+  path = "/healthz"
+  interval = "30s"
+  timeout = "2s"
+  grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

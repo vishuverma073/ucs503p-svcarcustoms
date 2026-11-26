@@ -1,0 +1,52 @@
+{
+  "name": "@svcar/api",
+  "version": "0.0.1",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch --env-file=.env src/entry/node.ts",
+    "build": "tsc",
+    "start": "node dist/entry/node.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "tsx --env-file=.env scripts/e2e-checkout.ts",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio",
+    "db:seed": "tsx --env-file=.env scripts/seed-from-data.ts",
+    "store:init": "tsx --env-file=.env scripts/init-store.ts",
+    "scrape:dotpe": "tsx scripts/scrape-dotpe.ts",
+    "import:dotpe": "tsx --env-file=.env scripts/import-dotpe.ts",
+    "db:seed-orders": "tsx --env-file=.env scripts/seed-orders.ts",
+    "admin:create": "tsx --env-file=.env scripts/create-admin.ts",
+    "admin:password": "tsx --env-file=.env scripts/set-admin-password.ts",
+    "images:migrate": "tsx --env-file=.env scripts/migrate-images-to-storage.ts",
+    "search:benchmark": "tsx scripts/search-benchmark.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.19.17",
+    "@sentry/node": "^10.55.0",
+    "@svcar/contracts": "workspace:*",
+    "@upstash/ratelimit": "^2.0",
+    "@upstash/redis": "^1.34",
+    "bcryptjs": "^2.4.3",
+    "drizzle-orm": "^0.45",
+    "hono": "^4.13.13",
+    "inngest": "^4.5.0",
+    "nanoid": "^5.1.16",
+    "postgres": "^3.4",
+    "web-push": "^3.6.7",
+    "zod": "^3.23"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20.12",
+    "@types/web-push": "^3.6.4",
+    "drizzle-kit": "^0.31",
+    "tsx": "^4.7",
+    "typescript": "^5.4",
+    "vitest": "^3"
+  }
+}

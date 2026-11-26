@@ -1,0 +1,93 @@
+import { z } from "zod";
+import { brand } from "../config/brand.js";
+
+const EnvSchema = z.object({
+  DATABASE_URL: z.string().url(),
+  PORT: z.coerce.number().int().positive().default(8787),
+  LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
+  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  JWT_ADMIN_SECRET: z.string().min(32),
+  // Image upload (Task 1.8). Optional so the server boots without storage configured;
+  // the upload endpoint returns 503 until both are set.
+  SUPABASE_URL: z.string().url().optional(),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+  // MSG91 SMS OTP (Phase 3). Optional: when absent, sendOtp() runs in stub mode
+  // (logs the code) so the OTP flow works in dev without burning SMS credits.
+  MSG91_AUTH_KEY: z.string().min(1).optional(),
+  MSG91_SENDER_ID: z.string().length(6).optional(),
+  MSG91_TEMPLATE_ID: z.string().min(1).optional(),
+  // MSG91 Flow template id for transactional order-update SMS (order confirmed
+  // + tracking link). Optional: when absent, order SMS runs in stub mode (logs).
+  MSG91_ORDER_TEMPLATE_ID: z.string().min(1).optional(),
+  // Customer-facing storefront origin used to build order tracking links sent
+  // by email/SMS. Defaults come from config/brand.ts — lazy so the value is
+  // resolved at parse time, not module-load time.
+  STOREFRONT_URL: z.string().url().default(() => brand.storefrontUrl),
+  // Customer auth JWTs (Phase 3). Generate via: openssl rand -hex 32
+  JWT_ACCESS_SECRET: z.string().min(32),
+  JWT_REFRESH_SECRET: z.string().min(32),
+  JWT_ISSUER: z.string().default(() => brand.serviceName),
+  // Upstash Redis for distributed OTP rate limiting (Phase 3). Optional — falls
+  // back to an in-process sliding window when unset.
+  UPSTASH_REDIS_REST_URL: z.string().url().optional(),
+  UPSTASH_REDIS_REST_TOKEN: z.string().min(1).optional(),
+  // Razorpay checkout (Phase 4). Optional: when any is unset the checkout flow
+  // runs in stub mode with dummy data (no real Razorpay account needed) — orders
+  // are created locally, signatures verify against a known dummy secret. Find
+  // these in the Razorpay dashboard → Settings → API Keys / Webhooks.
+  RAZORPAY_KEY_ID: z.string().min(1).optional(),
+  RAZORPAY_KEY_SECRET: z.string().min(1).optional(),
+  RAZORPAY_WEBHOOK_SECRET: z.string().min(1).optional(),
+  // Payment gateway selector. This project is locked to PayU (see
+  // lib/payments.ts → getPaymentProvider), so the value is effectively ignored;
+  // the default is "payu" to keep config self-documenting. Razorpay support
+  // remains in the tree but disabled.
+  PAYMENT_PROVIDER: z.enum(["razorpay", "payu"]).default("payu"),
+  // PayU hosted checkout. Optional: when KEY/SALT are unset the flow runs in stub
+  // mode with a built-in dummy key+salt (no real PayU account needed) — hashes
+  // are computed deterministically so dev/tests produce valid callbacks. Find
+  // these in the PayU dashboard. PAYU_MODE picks the test vs live payment host.
+  PAYU_MERCHANT_KEY: z.string().min(1).optional(),
+  PAYU_MERCHANT_SALT: z.string().min(1).optional(),
+  PAYU_MODE: z.enum(["test", "live"]).default("test"),
+  // Inngest async jobs (Phase 4). Optional: events are skipped in test/dev when
+  // unset; the local `inngest-cli dev` server needs no keys.
+  INNGEST_EVENT_KEY: z.string().min(1).optional(),
+  INNGEST_SIGNING_KEY: z.string().min(1).optional(),
+  // Resend transactional email (Phase 4). Optional: when unset, order emails are
+  // logged instead of sent (stub mode).
+  RESEND_API_KEY: z.string().min(1).optional(),
+  RESEND_FROM_EMAIL: z.string().email().optional(),
+  // Observability (Phase 5). All optional — absent means that sink is skipped
+  // (Sentry no-ops, Axiom logs to stdout only, Slack alerts are dropped).
+  SENTRY_DSN: z.string().url().optional(),
+  GIT_SHA: z.string().min(1).optional(),
+  AXIOM_DATASET: z.string().min(1).optional(),
+  AXIOM_TOKEN: z.string().min(1).optional(),
+  SLACK_WEBHOOK_URL: z.string().url().optional(),
+  // Admin Web Push (new-order / new-lead alerts on the admin's phone). All
+  // optional: when any is missing or invalid, push is disabled — /admin/push
+  // says so and orders/leads are unaffected. Generate a pair once with
+  // `npx web-push generate-vapid-keys`; SUBJECT is "mailto:you@example.com".
+  // Validated in lib/admin-push.ts (never here) so a typo can't stop the boot.
+  VAPID_PUBLIC_KEY: z.string().optional(),
+  VAPID_PRIVATE_KEY: z.string().optional(),
+  VAPID_SUBJECT: z.string().optional(),
+});
+
+export type Env = z.infer<typeof EnvSchema>;
+
+/**
+ * Parse and validate process environment. Throws with field-level messages
+ * if anything required is missing or malformed.
+ */
+export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
+  const parsed = EnvSchema.safeParse(source);
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map((i) => `  - ${i.path.join(".") || "(root)"}: ${i.message}`)
+      .join("\n");
+    throw new Error(`Invalid environment variables:\n${issues}`);
+  }
+  return parsed.data;
+}

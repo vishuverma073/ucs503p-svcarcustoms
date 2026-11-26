@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.turbo/
+*.log
+.env
+.env.local
+.env.*.local
+.npmrc
+.DS_Store
+coverage/
+*.tsbuildinfo
+
+# Staged catalogue scrape (large, business data — not for the repo)
+dotpe-data.json
+.wrangler/
+.pnpm-store/
